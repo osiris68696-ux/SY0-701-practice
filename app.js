@@ -1,5 +1,4 @@
-﻿const STORAGE_KEY = "sy0-701-practice-state-v20";
-const ACCESS_CODE = "01156688@";
+﻿const STORAGE_KEY = "sy0-701-practice-state-v22";
 const questions = window.QUESTION_BANK || [];
 
 const uiText = {
@@ -235,7 +234,6 @@ let state = loadState();
 let filter = "all";
 let activeQuestions = buildActiveQuestions();
 let timerInterval = null;
-let examUnlocked = false;
 state.mode = "setup";
 
 const els = {
@@ -247,11 +245,6 @@ const els = {
   langSelect: document.getElementById("language-select"),
   scopeSelect: document.getElementById("scope-select"),
   randomize: document.getElementById("randomize-select"),
-  accessModal: document.getElementById("access-modal"),
-  accessInput: document.getElementById("access-input"),
-  accessError: document.getElementById("access-error"),
-  accessCancel: document.getElementById("access-cancel"),
-  accessSubmit: document.getElementById("access-submit"),
   startButton: document.getElementById("start-button"),
   setupCount: document.getElementById("setup-question-count"),
   setupTime: document.getElementById("setup-time"),
@@ -261,6 +254,9 @@ const els = {
   text: document.getElementById("question-text"),
   source: document.getElementById("english-source"),
   options: document.getElementById("options"),
+  readQuestion: document.getElementById("read-question-button"),
+  readAnswer: document.getElementById("read-answer-button"),
+  stopSpeech: document.getElementById("stop-speech-button"),
   translationToggle: document.getElementById("translation-toggle"),
   translationPanel: document.getElementById("translation-panel"),
   feedback: document.getElementById("feedback"),
@@ -325,40 +321,7 @@ function buildActiveQuestions() {
   return selected.length ? selected : questions.slice(0, 45);
 }
 
-function updateLockControls() {
-  els.startButton.classList.toggle("locked", !examUnlocked);
-  els.startButton.textContent = examUnlocked ? "開始作答" : "🔒 點擊解鎖（隨機派題）";
-}
-
-function openAccessModal() {
-  els.accessModal.classList.remove("hidden");
-  els.accessInput.value = "";
-  els.accessError.textContent = "";
-  setTimeout(() => els.accessInput.focus(), 0);
-}
-
-function closeAccessModal() {
-  els.accessModal.classList.add("hidden");
-  els.accessInput.value = "";
-  els.accessError.textContent = "";
-}
-
-function verifyAccessCode() {
-  if (els.accessInput.value === ACCESS_CODE) {
-    examUnlocked = true;
-    closeAccessModal();
-    updateLockControls();
-    return;
-  }
-  els.accessError.textContent = "解鎖碼錯誤，請重新輸入。";
-  els.accessInput.select();
-}
-
 function startExam() {
-  if (!examUnlocked) {
-    openAccessModal();
-    return;
-  }
   const countValue = els.countSelect.value;
   const pickedCount = countValue === "random75-90" ? 75 + Math.floor(Math.random() * 16) : Number(countValue);
   const settings = {
@@ -448,7 +411,6 @@ function syncSetupControls() {
   els.randomize.checked = settings.randomize === true;
   els.setupCount.textContent = els.countSelect.value === "random75-90" ? "75-90" : els.countSelect.value;
   els.setupTime.textContent = els.timeSelect.value === "0" ? "∞" : els.timeSelect.value;
-  updateLockControls();
 }
 
 function updateLanguage() {
@@ -542,6 +504,41 @@ function correctAnswerLines(q) {
     const option = q.options.find((item) => item.label === label);
     return option ? `<p>${escapeHtml(label)}. ${escapeHtml(renderOptionText(option.text))}</p>` : `<p>${escapeHtml(label)}</p>`;
   }).join("");
+}
+
+function speechAvailable() {
+  return "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+}
+
+function speakText(text, lang = "en-US") {
+  if (!speechAvailable()) {
+    alert("此瀏覽器不支援語音朗讀功能。");
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = lang;
+  utterance.rate = 0.9;
+  utterance.pitch = 1;
+  window.speechSynthesis.speak(utterance);
+}
+
+function questionSpeechText(q) {
+  const optionText = q.options.map((option) => `${option.label}. ${option.text}`).join(". ");
+  return `Question ${state.index + 1}. ${q.question}. Options. ${optionText}.`;
+}
+
+function answerSpeechText(q) {
+  const correct = q.answer.map((label) => {
+    const option = q.options.find((item) => item.label === label);
+    return option ? `${label}. ${option.text}` : label;
+  }).join(". ");
+  const explanation = explainQuestion(q);
+  const correctZh = q.answer.map((label) => {
+    const option = q.options.find((item) => item.label === label);
+    return option ? `${label}. ${bilingualOptionText(option.text)}` : label;
+  }).join("。");
+  return `正確答案是：${correctZh}。${explanation.why} 考試小技巧：${explanation.tip} English answer: ${correct}.`;
 }
 
 function explainQuestion(q) {
@@ -1071,15 +1068,6 @@ function render() {
 }
 
 document.getElementById("start-button").addEventListener("click", startExam);
-els.accessCancel.addEventListener("click", closeAccessModal);
-els.accessSubmit.addEventListener("click", verifyAccessCode);
-els.accessInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") verifyAccessCode();
-  if (event.key === "Escape") closeAccessModal();
-});
-els.accessModal.addEventListener("click", (event) => {
-  if (event.target === els.accessModal) closeAccessModal();
-});
 document.getElementById("back-to-setup").addEventListener("click", () => {
   stopTimer();
   state.mode = "setup";
@@ -1140,6 +1128,15 @@ els.flag.addEventListener("click", () => {
 
 document.getElementById("check-button").addEventListener("click", checkCurrent);
 document.getElementById("reveal-button").addEventListener("click", revealCurrent);
+els.readQuestion.addEventListener("click", () => {
+  speakText(questionSpeechText(currentQuestion()), "en-US");
+});
+els.readAnswer.addEventListener("click", () => {
+  speakText(answerSpeechText(currentQuestion()), "zh-TW");
+});
+els.stopSpeech.addEventListener("click", () => {
+  if (speechAvailable()) window.speechSynthesis.cancel();
+});
 els.translationToggle.addEventListener("click", () => {
   const isHidden = els.translationPanel.classList.toggle("hidden");
   els.translationToggle.classList.toggle("active", !isHidden);
@@ -1197,4 +1194,6 @@ document.addEventListener("keydown", (event) => {
 
 render();
 startTimer();
+
+
 
